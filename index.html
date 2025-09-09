@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Drift Boss - Mustang Edition</title>
+<style>
+  html,body{height:100%;margin:0;background:#111;color:#eee;font-family:sans-serif}
+  #game {display:block;margin:10px auto;border:6px solid #222;background:#000; image-rendering: pixelated;}
+  #ui{width:800px;margin:8px auto;text-align:center;}
+  button{padding:10px 16px;border-radius:8px;border:none;background:#1e90ff;color:#fff;font-weight:700;cursor:pointer}
+  .muted{opacity:.6}
+  canvas{display:block}
+  .small{font-size:13px;color:#bbb}
+</style>
+</head>
+<body>
+<div id="ui">
+  <h2>Drift Boss - Mustang Edition</h2>
+  <div>
+    <button id="startBtn">Start (Play)</button>
+    <button id="restartBtn" class="muted">Restart</button>
+    <label class="small"> Controls: ← → or touch left/right</label>
+  </div>
+</div>
+
+<canvas id="game" width="800" height="600"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const startBtn = document.getElementById('startBtn');
+  const restartBtn = document.getElementById('restartBtn');
+
+  let running = false, gameOver = false, score = 0;
+  const player = { x: W / 2, y: H - 120, w: 40, h: 60, speed: 6, angle: 0, drift: 0.05 };
+
+  const segments = [];
+  const SEG_H = 18;
+  const SEG_COUNT = Math.ceil(H / SEG_H) + 6;
+  let baseGap = 120;
+  let difficulty = 0.0035;
+
+  const keys = { left: false, right: false };
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    if (t.clientX < window.innerWidth / 2) keys.left = true;
+    else keys.right = true;
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { keys.left = false; keys.right = false; }, { passive: true });
+  window.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft') keys.left = true; if (e.key === 'ArrowRight') keys.right = true; });
+  window.addEventListener('keyup', (e) => { if (e.key === 'ArrowLeft') keys.left = false; if (e.key === 'ArrowRight') keys.right = false; });
+
+  function resetTrack() {
+    segments.length = 0;
+    let cx = W / 2;
+    for (let i = 0; i < SEG_COUNT; i++) {
+      segments.push({ cx, gap: baseGap + Math.sin(i * 0.3) * 30 });
+      cx += (Math.random() - 0.5) * 8;
+      cx = Math.max(baseGap + 40, Math.min(W - baseGap - 40, cx));
+    }
+  }
+
+  function restart() {
+    running = false;
+    gameOver = false;
+    score = 0;
+    player.x = W / 2;
+    player.angle = 0;
+    difficulty = 0.0035;
+    baseGap = 120;
+    resetTrack();
+    restartBtn.classList.add('muted');
+  }
+
+  function checkCollision() {
+    const segIndex = Math.floor((H - player.y) / SEG_H);
+    if (segIndex >= 0 && segIndex < segments.length) {
+      const s = segments[segIndex];
+      const leftBound = s.cx - s.gap;
+      const rightBound = s.cx + s.gap;
+      if (player.x - player.w / 2 < leftBound || player.x + player.w / 2 > rightBound) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  let last = 0;
+  function loop(ts) {
+    if (!running) return;
+    const dt = Math.min(40, ts - last || 16);
+    last = ts;
+
+    if (keys.left) { player.x -= player.speed; player.angle = -player.drift; }
+    else if (keys.right) { player.x += player.speed; player.angle = player.drift; }
+    else { player.angle *= 0.85; }
+
+    player.x = Math.max(20, Math.min(W - 20, player.x));
+
+    const head = segments[0];
+    const newCx = Math.max(baseGap + 40, Math.min(W - baseGap - 40, head.cx + (Math.random() - 0.5) * 8 - difficulty * (score / 100)));
+    const newGap = Math.max(80, baseGap + Math.sin(perfNow() * 0.002) * 40 - score * 0.01);
+    segments.unshift({ cx: newCx, gap: newGap });
+    segments.pop();
+
+    score += 1;
+    if (score % 600 === 0) { baseGap = Math.max(90, baseGap - 4); difficulty += 0.0002; }
+
+    if (checkCollision()) {
+      gameOver = true;
+      running = false;
+      restartBtn.classList.remove('muted');
+    }
+
+    draw();
+    if (!gameOver) requestAnimationFrame(loop);
+    else {
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("GAME OVER", W / 2, H / 2 - 20);
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Score: " + score, W / 2, H / 2 + 10);
+      ctx.fillText("Press Restart to try again", W / 2, H / 2 + 40);
+    }
+  }
+
+  function perfNow() { return (performance && performance.now) ? performance.now() : Date.now(); }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#ff7f50'); // warm orange
+    g.addColorStop(1, '#ff1493'); // hot pink
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const s = segments[i];
+      const y = H - (i * SEG_H) - SEG_H / 2;
+      const left = s.cx - s.gap;
+      const right = s.cx + s.gap;
+
+      ctx.fillStyle = '#1f1f25';
+      ctx.fillRect(0, y - SEG_H / 2, left, SEG_H);
+      ctx.fillRect(right, y - SEG_H / 2, W - right, SEG_H);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(left, y - 2, right - left, 4);
+    }
+
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    ctx.beginPath();
+    ctx.moveTo(0, -player.h / 2);
+    ctx.lineTo(-player.w / 2, player.h / 2);
+    ctx.lineTo(player.w / 2, player.h / 2);
+    ctx.closePath();
+    ctx.fillStyle = '#ff6b6b'; // cool red
+    ctx.fill();
+    ctx.strokeStyle = '#fff2';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("Score: " + score, 12, 24);
+    ctx.textAlign = "right";
+    ctx.fillText("Gap: " + Math.round(baseGap * 2) + "px", W - 12, 24);
+  }
+
+  startBtn.addEventListener('click', () => {
+    if (!running && !gameOver) {
+      running = true;
+      last = performance.now();
+      requestAnimationFrame(loop);
+    } else if (gameOver) {
+      restart();
+      running = true;
+      last = performance.now();
+      requestAnimationFrame(loop);
+    }
+  });
+
+  restartBtn.addEventListener('click', () => {
+    restart();
+    running = true;
+    last = performance.now();
+    requestAnimationFrame(loop);
+  });
+
+  resetTrack();
+})();
+</script>
+</body>
+</html>
